@@ -1,4 +1,7 @@
 .env
 __pycache__
 .pytest_cache
+get-docker.sh
 /player_seasons
+processed_players.csv
+schools.csv

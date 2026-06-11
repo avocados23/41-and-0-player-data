@@ -1,0 +1,4 @@
+CREATE TABLE schools (
+    id   INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
