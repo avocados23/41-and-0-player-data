@@ -3,5 +3,6 @@ __pycache__
 .pytest_cache
 get-docker.sh
 /player_seasons
+player_positions.csv
 processed_players.csv
 schools.csv

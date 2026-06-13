@@ -1,18 +1,10 @@
--- The source data mostly uses generic positions (G, F, C, hybrids, ATH)
--- rather than the five specific ones from V1.
-ALTER TYPE player_position ADD VALUE IF NOT EXISTS 'G';
-ALTER TYPE player_position ADD VALUE IF NOT EXISTS 'F';
-ALTER TYPE player_position ADD VALUE IF NOT EXISTS 'G-F';
-ALTER TYPE player_position ADD VALUE IF NOT EXISTS 'F-C';
-ALTER TYPE player_position ADD VALUE IF NOT EXISTS 'ATH';
-
 -- One row per athlete: their best D1 season (highest PPG, ties broken by
--- PPG + RPG + APG). Stats are season totals from that season.
+-- PPG + RPG + APG). Stats are season totals from that season. Positions live
+-- in the player_position_maps junction table (a player can hold more than one).
 CREATE TABLE players (
     id                                INTEGER PRIMARY KEY,  -- source athleteId
     athlete_source_id                 BIGINT,
     name                              TEXT NOT NULL,
-    position                          player_position,
     school_id                         INTEGER NOT NULL REFERENCES schools (id),
     conference                        TEXT NOT NULL,
     season                            INTEGER NOT NULL,     -- ending year, e.g. 2025 = 2024-25
