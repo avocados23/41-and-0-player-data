@@ -1,3 +1,8 @@
+-- LOCAL BOOTSTRAP ONLY — PRODUCTION USE IS FORBIDDEN.
+-- This script intentionally TRUNCATES ... CASCADE and can destroy games,
+-- analytics, and community data. Managed staging/production releases must use
+-- operations/publish_core_dataset.py.
+--
 -- Loads the processed CSVs into bracketballer_dev. Run from the project root:
 --   PGPASSWORD=test psql -h localhost -U postgres -d bracketballer_dev -v ON_ERROR_STOP=1 -f load_data.sql
 --

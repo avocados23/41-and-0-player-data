@@ -1,0 +1,108 @@
+name: Data and Migration CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bracketballer_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bracketballer_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install --requirement requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Apply all migrations
+        run: >-
+          docker run --rm --network host
+          -v "$PWD/migrations:/flyway/sql:ro"
+          flyway/flyway@sha256:43592cc125eb0594d9b013e8dced2fa67d473c091abaa5dec03b22f49e682949
+          -url=jdbc:postgresql://127.0.0.1:5432/bracketballer_test
+          -user=postgres -password=test -connectRetries=10 migrate
+
+      - name: Validate migration history
+        run: >-
+          docker run --rm --network host
+          -v "$PWD/migrations:/flyway/sql:ro"
+          flyway/flyway@sha256:43592cc125eb0594d9b013e8dced2fa67d473c091abaa5dec03b22f49e682949
+          -url=jdbc:postgresql://127.0.0.1:5432/bracketballer_test
+          -user=postgres -password=test validate
+
+  upgrade-from-v29:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:92620daddcd947f8d5ab5ba66e848702fe443d87fed30c4cea8e389fd78dfc55
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: bracketballer_upgrade_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bracketballer_upgrade_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recreate previous production schema
+        run: >-
+          docker run --rm --network host
+          -v "$PWD/migrations:/flyway/sql:ro"
+          flyway/flyway@sha256:43592cc125eb0594d9b013e8dced2fa67d473c091abaa5dec03b22f49e682949
+          -url=jdbc:postgresql://127.0.0.1:5432/bracketballer_upgrade_test
+          -user=postgres -password=test -target=29 -connectRetries=10 migrate
+
+      - name: Load V29 representative snapshot
+        run: >-
+          psql -h 127.0.0.1 -U postgres -d bracketballer_upgrade_test
+          -v ON_ERROR_STOP=1 -f tests/fixtures/v29_upgrade_seed.sql
+
+      - name: Upgrade snapshot to latest
+        run: >-
+          docker run --rm --network host
+          -v "$PWD/migrations:/flyway/sql:ro"
+          flyway/flyway@sha256:43592cc125eb0594d9b013e8dced2fa67d473c091abaa5dec03b22f49e682949
+          -url=jdbc:postgresql://127.0.0.1:5432/bracketballer_upgrade_test
+          -user=postgres -password=test migrate
+
+      - name: Verify upgraded data and invariants
+        run: >-
+          psql -h 127.0.0.1 -U postgres -d bracketballer_upgrade_test
+          -v ON_ERROR_STOP=1 -f tests/fixtures/verify_v31_upgrade.sql

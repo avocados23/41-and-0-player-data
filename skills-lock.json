@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "create-plan": {
+      "source": "composiohq/awesome-codex-skills",
+      "sourceType": "github",
+      "skillPath": "create-plan/SKILL.md",
+      "computedHash": "0f62cb2d795aa665ed0ec75ea088fca5a2445e8fc2d4e3914768006530307e13"
+    }
+  }
+}
