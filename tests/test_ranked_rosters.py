@@ -1,0 +1,50 @@
+import unittest
+
+from ranked_rosters import (
+    VIRGINIA_TECH_TEAM_ID,
+    build_eligible_teams,
+    normalize_positions,
+    validate_roster_coverage,
+)
+
+
+class RankedRosterTests(unittest.TestCase):
+    def test_eligibility_is_ap_union_plus_virginia_tech(self):
+        rows = [
+            {"season": 2026, "pollType": "ap", "teamId": 10, "week": 1, "ranking": 25, "pollDate": "2025-11-01"},
+            {"season": 2026, "pollType": "ap", "teamId": 10, "week": 4, "ranking": 8, "pollDate": "2025-11-22"},
+            {"season": 2026, "pollType": "ap", "teamId": 20, "week": 2, "ranking": 3, "pollDate": "2025-11-08"},
+            {"season": 2026, "pollType": "coaches", "teamId": 30, "week": 2, "ranking": 1, "pollDate": "2025-11-08"},
+            {"season": 2026, "pollType": "ap", "teamId": 40, "week": 2, "ranking": 26, "pollDate": "2025-11-08"},
+        ]
+        result = {row.team_id: row for row in build_eligible_teams(rows, 2026)}
+        self.assertEqual(set(result), {10, 20, VIRGINIA_TECH_TEAM_ID})
+        self.assertEqual(result[10].first_poll_week, 1)
+        self.assertEqual(result[10].peak_rank, 8)
+        self.assertEqual(result[10].reasons, ("ap_top_25",))
+        self.assertEqual(
+            result[VIRGINIA_TECH_TEAM_ID].reasons,
+            ("virginia_tech",),
+        )
+
+    def test_virginia_tech_keeps_both_reasons_when_ranked(self):
+        result = build_eligible_teams(
+            [{"season": 2026, "pollType": "ap", "teamId": 340, "week": 5, "ranking": 20}],
+            2026,
+        )
+        self.assertEqual(result[0].reasons, ("ap_top_25", "virginia_tech"))
+
+    def test_position_normalization(self):
+        self.assertEqual(normalize_positions("F-C"), ("PF", "C"))
+        self.assertEqual(normalize_positions("g/f"), ("SG", "SF"))
+        self.assertEqual(normalize_positions(None), ())
+
+    def test_roster_validation_rejects_missing_and_undersized_teams(self):
+        with self.assertRaisesRegex(ValueError, "missing"):
+            validate_roster_coverage({1, 2}, [1, 1, 1, 1, 1])
+        with self.assertRaisesRegex(ValueError, "undersized"):
+            validate_roster_coverage({1}, [1, 1, 1, 1])
+
+
+if __name__ == "__main__":
+    unittest.main()

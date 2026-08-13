@@ -1,4 +1,4 @@
-"""Match players rows to their Torvik defensive row and write players.torvik_id.
+"""Match athlete and normalized player-season rows to Torvik defensive rows.
 
 players was sourced from CBBD and has no Torvik id, and the two sources spell
 names/teams differently ("Tennessee State" vs "Tennessee St.", "San José State"
@@ -44,6 +44,8 @@ from process_torvik_defensive_data import connection_dsn, load_env_file
 FIRST_SEASON = 2008  # Torvik's first covered season; pre-2008 stays unmatched.
 UNMATCHED_CSV = "torvik_unmatched.csv"
 NAME_SEASON_REVIEW_CSV = "torvik_name_season_matches.csv"
+PLAYER_SEASON_UNMATCHED_CSV = "torvik_player_season_unmatched.csv"
+PLAYER_SEASON_REVIEW_CSV = "torvik_player_season_name_matches.csv"
 
 # Name suffixes to drop so "Aaron Davis III" matches "Aaron Davis".
 NAME_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "v"}
@@ -279,8 +281,25 @@ def main():
                 "SELECT torvik_id, player, team, season FROM player_defensive_stats"
             )
             pds_rows = cur.fetchall()
+            cur.execute(
+                """
+                SELECT ps.id, p.name, s.name, ps.season
+                FROM player_seasons ps
+                JOIN players p ON p.id = ps.player_id
+                JOIN schools s ON s.id = ps.team_id
+                WHERE ps.season >= %s
+                """,
+                (FIRST_SEASON,),
+            )
+            player_seasons = cur.fetchall()
 
         matches, counts, unmatched, name_season_rows = match_all(players, pds_rows)
+        (
+            season_matches,
+            season_counts,
+            season_unmatched,
+            season_name_rows,
+        ) = match_all(player_seasons, pds_rows)
 
         # Idempotent: clear prior matches, then write the fresh ones.
         with conn.cursor() as cur:
@@ -300,6 +319,31 @@ def main():
                 template="(%s, %s, %s)",
                 page_size=500,
             )
+            cur.execute(
+                """
+                UPDATE player_seasons
+                SET torvik_id = NULL, torvik_match_method = NULL,
+                    updated_at = now()
+                WHERE torvik_id IS NOT NULL OR torvik_match_method IS NOT NULL
+                """
+            )
+            if season_matches:
+                execute_values(
+                    cur,
+                    """
+                    UPDATE player_seasons ps
+                    SET torvik_id = v.torvik_id,
+                        torvik_match_method = v.method,
+                        updated_at = now()
+                    FROM (VALUES %s) AS v(
+                        player_season_id, torvik_id, method
+                    )
+                    WHERE ps.id = v.player_season_id
+                    """,
+                    season_matches,
+                    template="(%s, %s, %s)",
+                    page_size=500,
+                )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -313,6 +357,16 @@ def main():
         ["player_id", "name", "team", "season", "torvik_id"],
         name_season_rows,
     )
+    _write_csv(
+        PLAYER_SEASON_UNMATCHED_CSV,
+        ["player_season_id", "name", "team", "season"],
+        season_unmatched,
+    )
+    _write_csv(
+        PLAYER_SEASON_REVIEW_CSV,
+        ["player_season_id", "name", "team", "season", "torvik_id"],
+        season_name_rows,
+    )
 
     total = len(players)
     matched = sum(counts.values())
@@ -323,6 +377,21 @@ def main():
         print(f"  {method:<13}{counts[method]}")
     print(f"  {'matched':<13}{matched} ({100 * matched / total:.1f}%)")
     print(f"  {'unmatched':<13}{len(unmatched)}")
+    season_total = len(player_seasons)
+    season_matched = sum(season_counts.values())
+    print(f"player_seasons (season >= {FIRST_SEASON}): {season_total}")
+    for method in (
+        "exact",
+        "normalized",
+        "team_fuzzy",
+        "team_surname",
+        "name_season",
+        "manual",
+    ):
+        print(f"  {method:<13}{season_counts[method]}")
+    season_pct = 100 * season_matched / season_total if season_total else 0
+    print(f"  {'matched':<13}{season_matched} ({season_pct:.1f}%)")
+    print(f"  {'unmatched':<13}{len(season_unmatched)}")
     print(f"Review files: {UNMATCHED_CSV}, {NAME_SEASON_REVIEW_CSV}")
 
 
