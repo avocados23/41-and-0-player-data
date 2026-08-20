@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from database import connection_dsn, load_env_file
+from bracketballer_data.database import connection_dsn, load_env_file
 
 
 class DatabaseConfigurationTests(unittest.TestCase):

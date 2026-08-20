@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dataset_release import checksum_files, validate_row_bounds
+from bracketballer_data.dataset_release import checksum_files, validate_row_bounds
 
 
 class DatasetReleaseTests(unittest.TestCase):
