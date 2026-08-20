@@ -1,0 +1,5 @@
+Metadata-Version: 2.1
+Name: bracketballer-player-data
+Version: 0.1.0
+Summary: Data ingestion and modeling pipeline for Bracketballer
+Requires-Python: >=3.12

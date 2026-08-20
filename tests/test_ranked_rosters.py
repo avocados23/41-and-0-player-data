@@ -1,6 +1,6 @@
 import unittest
 
-from ranked_rosters import (
+from bracketballer_data.ranked_rosters import (
     VIRGINIA_TECH_TEAM_ID,
     build_eligible_teams,
     normalize_positions,

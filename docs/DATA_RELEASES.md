@@ -5,8 +5,9 @@ release records its pipeline commit, immutable version, source URI/checksum,
 season/model range, staged and published row counts, validations, status, and
 timestamps in `data_import_runs`.
 
-`load_data.sql` is local bootstrap only. Its `TRUNCATE ... CASCADE` makes it
-permanently forbidden against staging or production.
+`sql/bootstrap/load_core_data.sql` is local bootstrap only. Its
+`TRUNCATE ... CASCADE` makes it permanently forbidden against staging or
+production.
 
 ## Core schools, players, and positions
 
@@ -17,10 +18,10 @@ record their object checksums. First run the publisher without `--apply`:
 export DATABASE_URL=<staging-ingestion-url>
 export PIPELINE_COMMIT=<full-git-commit>
 
-python operations/publish_core_dataset.py \
-  --schools schools.csv \
-  --players processed_players.csv \
-  --positions player_positions.csv \
+python -m scripts.publish.publish_core_dataset \
+  --schools data/processed/core/schools.csv \
+  --players data/processed/core/processed_players.csv \
+  --positions data/processed/core/player_positions.csv \
   --release-version core-2026-07-23.1 \
   --first-season 2005 \
   --last-season 2026
@@ -41,7 +42,7 @@ export DATABASE_URL=<staging-ingestion-url>
 export CBBD_API_KEY=<secret>
 export PIPELINE_COMMIT=<full-git-commit>
 
-python ingest_cbbd_shots_bulk.py \
+python -m scripts.ingest.ingest_cbbd_shots_bulk \
   --first 2020 \
   --last 2026 \
   --release-version cbbd-shots-2026-07-23.1 \
@@ -59,10 +60,10 @@ season visible and records a failed run.
 Use a new immutable model version; never overwrite an activated version.
 
 ```bash
-python compute_shooting_ability_profiles.py \
+python -m scripts.compute.compute_shooting_ability_profiles \
   --first 2020 --last 2026 --version shooting-v2
 
-python compute_contextual_shooting_signals.py \
+python -m scripts.compute.compute_contextual_shooting_signals \
   --first 2020 --last 2026 --version shooting-v2
 ```
 
@@ -78,7 +79,7 @@ Capture source and target manifests with:
 
 ```bash
 psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
-  -f operations/database_manifest.sql > manifest.txt
+  -f ../fastify/database/operations/database_manifest.sql > manifest.txt
 ```
 
 Compare manifests, API responses, query latency, active model, and season
@@ -93,15 +94,16 @@ prohibited.
 
 ## AP Top 25 + Virginia Tech rosters and defensive characteristics
 
-Apply migrations through V32 and keep the CBBD SDK pinned to the repository's
-requirements. The ranked-roster publisher is audited and dry-run by default:
+Ensure the Fastify environment has the required migrations applied and keep the
+CBBD SDK pinned to this repository's requirements. The ranked-roster publisher
+is audited and dry-run by default:
 
 ```bash
-python ingest_ranked_rosters.py \
+python -m scripts.ingest.ingest_ranked_rosters \
   --season 2026 \
   --release-version ranked-rosters-2026-07-26.1
 
-python ingest_ranked_rosters.py \
+python -m scripts.ingest.ingest_ranked_rosters \
   --season 2026 \
   --release-version ranked-rosters-2026-07-26.1 \
   --apply
@@ -125,7 +127,7 @@ source correction.
 Compute the initial model in shadow mode without activating it:
 
 ```bash
-python compute_defensive_characteristics.py \
+python -m scripts.compute.compute_defensive_characteristics \
   --first 2024 --last 2026 \
   --model-version defense-v1-shadow \
   --release-version defense-v1-shadow-2026-07-26.1 \
@@ -138,7 +140,7 @@ examples and calculate precision on the reviewed audit set. Activation is
 blocked unless the reported precision is at least 0.80:
 
 ```bash
-python compute_defensive_characteristics.py \
+python -m scripts.compute.compute_defensive_characteristics \
   --first 2024 --last 2026 \
   --model-version defense-v1-shadow \
   --release-version defense-v1-activation-2026-07-27.1 \

@@ -1,6 +1,6 @@
 import unittest
 
-from defensive_characteristics import (
+from bracketballer_data.defensive_characteristics import (
     PlayerDefensiveEvidence,
     score_characteristics,
 )

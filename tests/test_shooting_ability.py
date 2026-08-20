@@ -1,6 +1,6 @@
 import unittest
 
-from shooting_ability import (
+from bracketballer_data.shooting_ability import (
     PlayerShootingInput,
     ZoneCount,
     beta_probability_above,

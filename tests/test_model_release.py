@@ -1,6 +1,6 @@
 import unittest
 
-from model_release import validate_release_counts
+from bracketballer_data.model_release import validate_release_counts
 
 
 class ModelReleaseValidationTests(unittest.TestCase):
