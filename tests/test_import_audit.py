@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from import_audit import pipeline_commit
+from bracketballer_data.import_audit import pipeline_commit
 
 
 class PipelineCommitTests(unittest.TestCase):

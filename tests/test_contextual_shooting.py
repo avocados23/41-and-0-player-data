@@ -1,6 +1,6 @@
 import unittest
 
-from contextual_shooting import (
+from bracketballer_data.contextual_shooting import (
     BaseProfile,
     GameContext,
     ZoneContext,

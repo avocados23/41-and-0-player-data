@@ -1,5 +1,0 @@
-FROM flyway/flyway@sha256:43592cc125eb0594d9b013e8dced2fa67d473c091abaa5dec03b22f49e682949
-
-COPY migrations /flyway/sql
-
-CMD ["migrate"]

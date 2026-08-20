@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec python3 scripts/validate_commit_message.py --file "$1"

@@ -1,6 +1,6 @@
 import unittest
 
-from shooting_data import (
+from bracketballer_data.shooting_data import (
     ACCURACY_PRIOR_ATTEMPTS,
     ShootingAggregate,
     build_shooting_profiles,

@@ -1,15 +1,13 @@
-# PostgreSQL schema changes
+# PostgreSQL schema ownership
 
-Whenever adding or modifying a Flyway migration in this repository:
+The sibling Fastify repository owns PostgreSQL schema changes. Add or modify
+Flyway migrations under `../fastify/database/migrations`, keep
+`../fastify/prisma/schema.prisma` synchronized, run
+`npm --prefix ../fastify run generate:entities`, and include every resulting
+generated change under `../fastify/src/lib/entities` in the same work.
 
-- Update the sibling Fastify repository's `prisma/schema.prisma` so it remains
-  synchronized with the PostgreSQL schema.
-- Run `npm --prefix ../fastify run generate:entities`.
-- Include and validate every resulting generated change under
-  `../fastify/src/lib/entities` in the same work as the migration.
-- Do not manually edit files under `../fastify/src/lib/entities`; that
-  directory is owned by the Fastify repository's
-  `scripts/generate-entities.ts`.
+Do not manually edit files under `../fastify/src/lib/entities`; that directory
+is owned by the Fastify repository's `scripts/generate-entities.ts`.
 
-PostgreSQL schema changes include both Flyway migrations and direct changes to
-the Fastify Prisma schema.
+This repository owns ingestion, model computation, and audited dataset
+publication. Do not add a second migration set here.
