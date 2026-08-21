@@ -10,6 +10,38 @@ The snapshot format is PostgreSQL 16 custom-format, data-only, compressed with
 Zstandard. The target schema must be created by the Fastify repository's
 Flyway migrations through V34 before the data is restored.
 
+## PostgreSQL client tools
+
+Creating and restoring snapshots shells out to `pg_dump`/`pg_restore`
+directly (not through psycopg2), and both must resolve on `PATH` as
+PostgreSQL **16** — `postgres_client_major()` rejects any other major
+version. macOS and Linux typically get these from the OS's
+`postgresql-client`/`postgresql@16` package independently of Docker.
+
+Windows has no equivalent: there is no official standalone PostgreSQL 16
+client-tools installer, and the full server installer bundles a mismatched
+major version (17/18) alongside a server you likely don't want running
+locally. If your local PostgreSQL only exists as the `postgres:16` Docker
+container from the Fastify repository's `docker-compose.yml`, that
+container already has a correct `pg_dump`/`pg_restore` — you just need
+something on `PATH` named `pg_dump`/`pg_restore` that forwards to it (e.g.
+`docker exec <container> pg_dump/pg_restore ...`, copying any local
+archive file into the container first with `docker cp` since these tools
+read from the local filesystem of wherever they run).
+
+One added wrinkle if you build such a shim: on Windows, Python's
+`subprocess` module resolves a bare command name (e.g. `"pg_restore"`,
+as `development_snapshot.py` calls it) by asking `CreateProcess` to find
+it, and `CreateProcess` only auto-appends `.exe` — unlike `cmd.exe` /
+`shutil.which`, it does **not** consult `PATHEXT` to find a `.bat` or
+`.cmd` script. A shim placed on `PATH` must therefore be a real `.exe`
+(a `.bat`/`.cmd` file resolves fine when a human runs `pg_restore` in a
+shell, but silently fails with `WinError 2` when this repo's Python
+scripts invoke it). A tiny native launcher compiled with `csc.exe`
+(bundled with the .NET Framework on any Windows install, no extra
+tooling required) that shells out to the Docker-based script above is
+enough.
+
 ## Spaces setup
 
 Create a private DigitalOcean Space in `nyc3` named
@@ -105,6 +137,28 @@ The restore command refuses a nonempty target, requires the target Flyway
 history and checksums to match the manifest, restores in one transaction,
 runs `ANALYZE`, and compares every allowlisted table count. It also verifies
 that all sensitive application tables remain empty.
+
+"Nonempty" is checked across every table in `public` (except
+`flyway_schema_history`), not just the snapshot's own allowlist. A target
+freshly migrated to V34 is not actually empty: Flyway migration
+`V28__create_lineup_labels.sql` inserts 7 static seed rows into
+`lineup_labels` as part of creating the table, and the restore's pre-flight
+check fails on it (`target database must be empty before restore:
+{'lineup_labels': 7}`). `lineup_labels` is not part of the snapshot content
+(the snapshot intentionally excludes labels, per the note above), so
+truncating it first loses nothing the restore would have provided:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "TRUNCATE lineup_labels CASCADE;"
+```
+
+`CASCADE` is required because `published_lineups`, `saved_labels`,
+`lineup_votes`, and `lineup_comments` all reference `lineup_labels`; on a
+freshly migrated database those tables are empty, so the cascade is a
+no-op beyond the truncate itself. After the restore, re-run the `INSERT
+INTO lineup_labels ...` statement from the bottom of
+`V28__create_lineup_labels.sql` (in the Fastify repository) to put the 7
+seed rows back — the app's community-labels feature expects them.
 
 Docker and native PostgreSQL servers use the same archive and restore command;
 only the target database URL and provisioning steps differ.

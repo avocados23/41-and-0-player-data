@@ -9,7 +9,11 @@ the PostgreSQL schema and canonical Flyway migrations.
 
 Requirements are Python 3.12+, Git, and PostgreSQL access for database jobs.
 Docker is required when reproducing the disposable database checks in the
-Fastify repository.
+Fastify repository. Restoring or creating a development snapshot additionally
+requires PostgreSQL 16 client tools (`psql`, `pg_dump`, `pg_restore`) on
+`PATH`; see the Windows note in
+[docs/DEVELOPMENT_SNAPSHOTS.md](docs/DEVELOPMENT_SNAPSHOTS.md#postgresql-client-tools)
+if they are not already installed.
 
 ```bash
 ./scripts/setup-local.sh
