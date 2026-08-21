@@ -18,7 +18,10 @@ Fastify repository.
 
 The setup script creates `.venv`, installs the pinned dependencies and this
 package in editable mode, creates `.env` from `.env.example` when needed, and
-installs the repository-managed commit hook.
+adds any missing DigitalOcean Spaces settings to an existing `.env` without
+changing its database values. It always enforces private mode (`0600`) for
+`.env`; it never generates or retrieves secrets. Blank Spaces credentials are
+reported as a warning because Spaces is optional for local-only work.
 
 ## Layout
 
@@ -50,6 +53,8 @@ Run commands from the repository root with the virtual-environment interpreter:
 ```
 
 Read [docs/DATA_RELEASES.md](docs/DATA_RELEASES.md) before publishing data.
+For onboarding a developer with the current sports database, read
+[docs/DEVELOPMENT_SNAPSHOTS.md](docs/DEVELOPMENT_SNAPSHOTS.md).
 The `--apply` commands write to PostgreSQL; rehearse them against a disposable
 or staging database and never use the destructive bootstrap against production.
 
