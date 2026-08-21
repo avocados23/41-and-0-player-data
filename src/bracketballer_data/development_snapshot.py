@@ -237,7 +237,9 @@ def spaces_client() -> Any:
         import boto3
         from botocore.config import Config
     except ImportError as error:
-        raise RuntimeError("install boto3 to upload or share Spaces snapshots") from error
+        raise RuntimeError(
+            "install boto3 to upload, download, or share Spaces snapshots"
+        ) from error
     region, bucket, access_key, secret_key = _spaces_settings()
     endpoint = os.environ.get("DO_SPACES_ENDPOINT", "").strip()
     if not endpoint:
@@ -268,10 +270,13 @@ def manifest_paths(manifest: dict[str, Any]) -> tuple[str, str, str]:
     objects = manifest.get("objects")
     if not isinstance(objects, dict):
         raise ValueError("manifest objects are missing")
-    try:
-        return str(objects["archive"]), str(objects["checksum"]), str(objects["manifest"])
-    except KeyError as error:
-        raise ValueError(f"manifest object key is missing: {error.args[0]}") from error
+    keys: list[str] = []
+    for name in ("archive", "checksum", "manifest"):
+        value = objects.get(name)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"manifest object key is missing or invalid: {name}")
+        keys.append(value)
+    return keys[0], keys[1], keys[2]
 
 
 def validate_checksum_sidecar(checksum: Path, archive: Path) -> str:
@@ -423,6 +428,124 @@ def download_url(url: str, destination: Path) -> Path:
         raise
     destination.chmod(0o600)
     return destination
+
+
+def _snapshot_manifest_candidates(client: Any, bucket: str) -> list[str]:
+    """Return published snapshot manifests, newest first.
+
+    The publisher writes the manifest last, so a manifest is the publication
+    marker for an otherwise immutable snapshot.  Listing is paginated because
+    Spaces uses the S3 API and a bucket can eventually contain many releases.
+    """
+
+    candidates: list[tuple[datetime, str]] = []
+    continuation_token: str | None = None
+    while True:
+        request: dict[str, Any] = {
+            "Bucket": bucket,
+            "Prefix": "development-snapshots/v34/",
+            "MaxKeys": 1000,
+        }
+        if continuation_token:
+            request["ContinuationToken"] = continuation_token
+        page = client.list_objects_v2(**request)
+        for item in page.get("Contents", []) or []:
+            key = item.get("Key")
+            if not isinstance(key, str) or not key.endswith(".dump.json"):
+                continue
+            modified = item.get("LastModified")
+            if not isinstance(modified, datetime):
+                modified = datetime.min.replace(tzinfo=timezone.utc)
+            elif modified.tzinfo is None:
+                modified = modified.replace(tzinfo=timezone.utc)
+            candidates.append((modified, key))
+        if not page.get("IsTruncated"):
+            break
+        next_token = page.get("NextContinuationToken")
+        if not isinstance(next_token, str) or not next_token:
+            raise RuntimeError("DigitalOcean Spaces returned an incomplete object listing")
+        continuation_token = next_token
+    return [key for _, key in sorted(candidates, reverse=True)]
+
+
+def _download_spaces_object(client: Any, bucket: str, key: str, destination: Path) -> Path:
+    """Download one Spaces object atomically into a private directory."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.part")
+    try:
+        client.download_file(bucket, key, str(temporary))
+        temporary.replace(destination)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    destination.chmod(0o600)
+    return destination
+
+
+def _safe_archive_filename(manifest: dict[str, Any]) -> str:
+    archive = manifest.get("archive")
+    if not isinstance(archive, dict):
+        raise ValueError("snapshot archive metadata is missing")
+    filename = archive.get("filename")
+    if (
+        not isinstance(filename, str)
+        or not filename
+        or filename in {".", ".."}
+        or Path(filename).name != filename
+        or "\x00" in filename
+    ):
+        raise ValueError("snapshot manifest contains an invalid archive filename")
+    return filename
+
+
+def download_latest_snapshot(destination_dir: Path) -> tuple[Path, Path, Path, dict[str, Any], str]:
+    """Download and verify the newest complete snapshot from Spaces.
+
+    The manifest is downloaded first because it contains the immutable object
+    keys and archive filename.  Incomplete candidates are skipped when either
+    data object is absent; malformed manifests are rejected rather than
+    silently falling back to older data.
+    """
+
+    _, bucket, _, _ = _spaces_settings()
+    client = spaces_client()
+    candidates = _snapshot_manifest_candidates(client, bucket)
+    if not candidates:
+        raise RuntimeError("no development database snapshots were found in DigitalOcean Spaces")
+
+    for index, manifest_key in enumerate(candidates):
+        candidate_path = destination_dir / f"candidate-{index}.dump.json"
+        _download_spaces_object(client, bucket, manifest_key, candidate_path)
+        manifest = read_json(candidate_path)
+        release_version = manifest.get("release_version")
+        if not isinstance(release_version, str):
+            raise ValueError("snapshot manifest release_version is missing or invalid")
+        validate_release_version(release_version)
+        archive_key, checksum_key, declared_manifest_key = manifest_paths(manifest)
+        if declared_manifest_key != manifest_key:
+            raise ValueError(
+                "snapshot manifest object key does not match the published Spaces object"
+            )
+        archive_filename = _safe_archive_filename(manifest)
+        if Path(archive_key).name != archive_filename:
+            raise ValueError("snapshot archive object key does not match its manifest filename")
+        if Path(checksum_key).name != f"{archive_filename}.sha256":
+            raise ValueError("snapshot checksum object key does not match its archive filename")
+        archive_path = destination_dir / archive_filename
+        checksum_path = destination_dir / f"{archive_filename}.sha256"
+        if _head_object(client, bucket, archive_key) is None or _head_object(
+            client, bucket, checksum_key
+        ) is None:
+            candidate_path.unlink(missing_ok=True)
+            continue
+        _download_spaces_object(client, bucket, archive_key, archive_path)
+        _download_spaces_object(client, bucket, checksum_key, checksum_path)
+        validate_checksum_sidecar(checksum_path, archive_path)
+        validate_manifest_archive(manifest, archive_path)
+        return archive_path, checksum_path, candidate_path, manifest, manifest_key
+
+    raise RuntimeError("no complete development database snapshot was found in DigitalOcean Spaces")
 
 
 def build_manifest(

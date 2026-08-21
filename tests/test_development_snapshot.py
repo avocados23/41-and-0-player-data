@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -315,6 +316,164 @@ class DevelopmentSnapshotTests(unittest.TestCase):
         self.assertTrue(
             url.startswith("https://test-bucket.nyc3.digitaloceanspaces.com/development/a.dump?")
         )
+
+    def test_download_latest_snapshot_paginates_and_skips_incomplete_release(self):
+        class NoSuchKey(Exception):
+            pass
+
+        class Exceptions:
+            pass
+
+        Exceptions.NoSuchKey = NoSuchKey
+
+        class Client:
+            exceptions = Exceptions
+
+            def __init__(self, objects):
+                self.objects = objects
+                self.list_calls = []
+                self.downloads = []
+
+            def list_objects_v2(self, **kwargs):
+                self.list_calls.append(kwargs)
+                if "ContinuationToken" not in kwargs:
+                    return {
+                        "Contents": [
+                            {
+                                "Key": "development-snapshots/v34/new/snapshot.dump.json",
+                                "LastModified": datetime(2026, 8, 20, tzinfo=timezone.utc),
+                            }
+                        ],
+                        "IsTruncated": True,
+                        "NextContinuationToken": "next-page",
+                    }
+                return {
+                    "Contents": [
+                        {
+                            "Key": "development-snapshots/v34/old/snapshot.dump.json",
+                            "LastModified": datetime(2026, 8, 19, tzinfo=timezone.utc),
+                        },
+                        {"Key": "development-snapshots/v34/old/README.txt"},
+                    ],
+                    "IsTruncated": False,
+                }
+
+            def head_object(self, *, Bucket, Key):
+                if Key not in self.objects:
+                    raise NoSuchKey()
+                return {"ContentLength": len(self.objects[Key])}
+
+            def download_file(self, bucket, key, filename):
+                self.downloads.append(key)
+                if key not in self.objects:
+                    raise NoSuchKey()
+                Path(filename).write_bytes(self.objects[key])
+
+        archive = b"verified archive"
+        digest = snapshot.hashlib.sha256(archive).hexdigest()
+
+        def manifest_for(prefix):
+            return json.dumps(
+                {
+                    "format_version": snapshot.SNAPSHOT_FORMAT_VERSION,
+                    "release_version": prefix,
+                    "archive": {
+                        "filename": "snapshot.dump",
+                        "bytes": len(archive),
+                        "sha256": digest,
+                        "table_allowlist": list(snapshot.SNAPSHOT_TABLES),
+                    },
+                    "objects": {
+                        "archive": f"development-snapshots/v34/{prefix}/snapshot.dump",
+                        "checksum": f"development-snapshots/v34/{prefix}/snapshot.dump.sha256",
+                        "manifest": f"development-snapshots/v34/{prefix}/snapshot.dump.json",
+                    },
+                }
+            ).encode()
+
+        objects = {
+            "development-snapshots/v34/new/snapshot.dump.json": manifest_for("new"),
+            "development-snapshots/v34/old/snapshot.dump.json": manifest_for("old"),
+            "development-snapshots/v34/old/snapshot.dump": archive,
+            "development-snapshots/v34/old/snapshot.dump.sha256": (
+                f"{digest}  snapshot.dump\n".encode()
+            ),
+        }
+        client = Client(objects)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "DO_SPACES_BUCKET": "test-bucket",
+                "DO_SPACES_ACCESS_KEY_ID": "access",
+                "DO_SPACES_SECRET_ACCESS_KEY": "secret",
+            },
+            clear=False,
+        ), patch.object(snapshot, "spaces_client", return_value=client), patch.object(
+            snapshot, "validate_manifest_archive"
+        ):
+            archive_path, checksum_path, manifest_path, manifest, manifest_key = (
+                snapshot.download_latest_snapshot(Path(directory))
+            )
+
+            self.assertEqual(manifest_key, "development-snapshots/v34/old/snapshot.dump.json")
+            self.assertEqual(manifest["release_version"], "old")
+            self.assertEqual(archive_path.read_bytes(), archive)
+            self.assertEqual(checksum_path.read_text(), f"{digest}  snapshot.dump\n")
+            self.assertEqual(manifest_path.read_text(), objects[manifest_key].decode())
+            self.assertEqual(len(client.list_calls), 2)
+            self.assertEqual(
+                client.list_calls[1]["ContinuationToken"],
+                "next-page",
+            )
+            self.assertNotIn("development-snapshots/v34/new/snapshot.dump", client.downloads)
+
+    def test_download_latest_snapshot_rejects_manifest_key_mismatch(self):
+        class NoSuchKey(Exception):
+            pass
+
+        class Exceptions:
+            pass
+
+        Exceptions.NoSuchKey = NoSuchKey
+
+        class Client:
+            exceptions = Exceptions
+
+            def list_objects_v2(self, **kwargs):
+                return {
+                    "Contents": [
+                        {
+                            "Key": "development-snapshots/v34/release/snapshot.dump.json",
+                            "LastModified": datetime(2026, 8, 20, tzinfo=timezone.utc),
+                        }
+                    ]
+                }
+
+            def download_file(self, bucket, key, filename):
+                Path(filename).write_text(
+                    json.dumps(
+                        {
+                            "objects": {
+                                "archive": "other.dump",
+                                "checksum": "other.dump.sha256",
+                                "manifest": "different.json",
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "DO_SPACES_BUCKET": "test-bucket",
+                "DO_SPACES_ACCESS_KEY_ID": "access",
+                "DO_SPACES_SECRET_ACCESS_KEY": "secret",
+            },
+            clear=False,
+        ), patch.object(snapshot, "spaces_client", return_value=Client()):
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                snapshot.download_latest_snapshot(Path(directory))
 
 
 if __name__ == "__main__":

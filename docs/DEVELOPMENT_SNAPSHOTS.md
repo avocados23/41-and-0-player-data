@@ -64,32 +64,35 @@ release version when republishing an object created by an older uploader. The
 manifest records the source Flyway checksums, source commit, exact row counts,
 archive size, SHA-256, and object keys.
 
-Generate 24-hour download URLs for the developer:
+The developer restore command discovers the newest complete release directly
+from Spaces. Give the developer a read-only, bucket-scoped Spaces key and add
+the following settings to the developer's ignored `.env`:
 
-```bash
-.venv/bin/python -m scripts.publish.publish_development_snapshot \
-  share \
-  --manifest data/exports/development/bracketballer-player-school-data-v34-2026-08-20.1.dump.json \
-  --expires-in 86400
+```text
+DO_SPACES_REGION=nyc3
+DO_SPACES_BUCKET=bracketballer-development-snapshots
+DO_SPACES_ACCESS_KEY_ID=<developer-read-key>
+DO_SPACES_SECRET_ACCESS_KEY=<developer-read-secret>
 ```
 
-Send the archive, checksum, and manifest URLs through an approved private
-channel. The URLs are bearer credentials and expire automatically.
+The script does not require a manifest path, object key, release version, or
+download URL from the developer. It lists published manifests, downloads the
+newest complete snapshot, verifies it, restores it, and removes its temporary
+files:
+
+```bash
+.venv/bin/python scripts/restore_development_snapshot.py
+```
 
 ## Restore locally
 
-The developer downloads the three objects and verifies the archive before
-restoring it:
-
-```bash
-curl --fail --location '<archive-url>' --output snapshot.dump
-curl --fail --location '<checksum-url>' --output snapshot.dump.sha256
-curl --fail --location '<manifest-url>' --output snapshot.dump.json
-sha256sum --check snapshot.dump.sha256
-```
-
 Create a fresh PostgreSQL 16 database, apply the Fastify Flyway migrations
-through V34, and then run:
+through V34, and set its connection string in `DATABASE_URL` (or configure the
+existing `PSQL_*` settings). The command above uses that target automatically.
+It refuses a nonempty or schema-mismatched target.
+
+For an operator who already has local snapshot artifacts, the explicit form is
+still available:
 
 ```bash
 .venv/bin/python scripts/restore_development_snapshot.py \
