@@ -27,13 +27,10 @@ fi
 "${VENV_DIR}/bin/python" -m pip install --requirement requirements.txt
 "${VENV_DIR}/bin/python" -m pip install --editable . --no-deps
 
-if [[ ! -f .env ]]; then
-	cp .env.example .env
-	chmod 600 .env
-	echo "Created .env from .env.example; update credentials before running database jobs."
-else
-	echo "Kept existing .env unchanged."
-fi
+"${PYTHON_BIN}" "${SCRIPT_DIR}/sync_env_file.py" \
+	--env-file "${REPO_ROOT}/.env" \
+	--example-file "${REPO_ROOT}/.env.example"
+echo "Update database, CBBD, and optional Spaces credentials before running jobs."
 
 git config core.hooksPath .githooks
 echo "Local setup complete. Use ${VENV_DIR}/bin/python for pipeline commands."
