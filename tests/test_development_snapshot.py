@@ -427,7 +427,9 @@ class DevelopmentSnapshotTests(unittest.TestCase):
             )
             self.assertNotIn("development-snapshots/v34/new/snapshot.dump", client.downloads)
 
-    def test_download_latest_snapshot_rejects_manifest_key_mismatch(self):
+    def _single_manifest_client(self, manifest):
+        """Return a fake Spaces client publishing one manifest object."""
+
         class NoSuchKey(Exception):
             pass
 
@@ -450,18 +452,29 @@ class DevelopmentSnapshotTests(unittest.TestCase):
                 }
 
             def download_file(self, bucket, key, filename):
-                Path(filename).write_text(
-                    json.dumps(
-                        {
-                            "objects": {
-                                "archive": "other.dump",
-                                "checksum": "other.dump.sha256",
-                                "manifest": "different.json",
-                            }
-                        }
-                    ),
-                    encoding="utf-8",
-                )
+                Path(filename).write_text(json.dumps(manifest), encoding="utf-8")
+
+        return Client()
+
+    @staticmethod
+    def _release_manifest():
+        """A manifest whose object keys match the published Spaces object."""
+
+        return {
+            "format_version": snapshot.SNAPSHOT_FORMAT_VERSION,
+            "release_version": "release",
+            "archive": {"filename": "snapshot.dump"},
+            "objects": {
+                "archive": "development-snapshots/v34/release/snapshot.dump",
+                "checksum": "development-snapshots/v34/release/snapshot.dump.sha256",
+                "manifest": "development-snapshots/v34/release/snapshot.dump.json",
+            },
+        }
+
+    def test_download_latest_snapshot_rejects_manifest_key_mismatch(self):
+        manifest = self._release_manifest()
+        manifest["objects"]["manifest"] = "development-snapshots/v34/other/snapshot.dump.json"
+        client = self._single_manifest_client(manifest)
 
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ,
@@ -471,8 +484,25 @@ class DevelopmentSnapshotTests(unittest.TestCase):
                 "DO_SPACES_SECRET_ACCESS_KEY": "secret",
             },
             clear=False,
-        ), patch.object(snapshot, "spaces_client", return_value=Client()):
-            with self.assertRaisesRegex(ValueError, "does not match"):
+        ), patch.object(snapshot, "spaces_client", return_value=client):
+            with self.assertRaisesRegex(ValueError, "manifest object key does not match"):
+                snapshot.download_latest_snapshot(Path(directory))
+
+    def test_download_latest_snapshot_rejects_manifest_missing_release_version(self):
+        manifest = self._release_manifest()
+        del manifest["release_version"]
+        client = self._single_manifest_client(manifest)
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "DO_SPACES_BUCKET": "test-bucket",
+                "DO_SPACES_ACCESS_KEY_ID": "access",
+                "DO_SPACES_SECRET_ACCESS_KEY": "secret",
+            },
+            clear=False,
+        ), patch.object(snapshot, "spaces_client", return_value=client):
+            with self.assertRaisesRegex(ValueError, "release_version is missing or invalid"):
                 snapshot.download_latest_snapshot(Path(directory))
 
 
